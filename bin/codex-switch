@@ -1,0 +1,250 @@
+#!/bin/bash
+# codex-switch — swap the Codex desktop app's active LLM provider
+#
+# Usage:
+#   codex-switch gpt-5.5      # or 'openai'
+#   codex-switch minimax      # or 'minimax-m3'
+#   codex-switch status      # show current active provider (no restart)
+#   codex-switch             # interactive picker
+#
+# What it does:
+#   1. Quits the Codex desktop app cleanly (osascript quit)
+#   2. Patches the top-level `model` + `model_provider` keys in
+#      ~/.codex/config.toml to match the requested profile
+#   3. Relaunches the Codex desktop app
+#   4. Prints the now-active config
+#
+# Note: the Codex desktop app reads the top-level `model` from config.toml
+# on launch. There's no in-app model state that overrides it.
+#
+# The provider block in [model_providers.<name>] and the env-var indirection
+# (env_key = "MINIMAX_API_KEY") are preconfigured and stay put.
+#
+# macOS-specific gotcha: Codex.app is GUI-launched by launchd, which does
+# NOT inherit exports from ~/.zshenv. So a key that's set in your shell is
+# invisible to the running Codex. The fix is `launchctl setenv` — that
+# writes into the user launchd domain, and all NEW GUI processes spawned
+# after that inherit it. We do this automatically before every relaunch.
+
+set -e
+
+CONFIG="$HOME/.codex/config.toml"
+CODEX_APP="/Applications/Codex.app"
+
+# Profile name -> (model, model_provider) tuple
+# We use a case statement instead of bash 3.2 associative arrays because
+# Apple's bundled bash 3.2.57 has buggy -A support and chokes on keys
+# containing dots (e.g. "gpt-5.5").
+resolve_profile() {
+    case "$1" in
+        gpt-5.5|openai)        echo "gpt-5.5|openai" ;;
+        minimax|minimax-m3|m3) echo "MiniMax-M3|minimax" ;;
+        *)                    return 1 ;;
+    esac
+}
+
+show_status() {
+    if [ ! -f "$CONFIG" ]; then
+        echo "ERROR: $CONFIG not found" >&2
+        return 1
+    fi
+    local current_model current_provider reasoning service_tier
+    # Match exactly the key, not its prefix (avoid `model` matching `model_provider`).
+    # Use [[:space:]] not \s — BSD sed on macOS doesn't recognize \s in -E mode.
+    current_model=$(grep -E '^model[[:space:]]*=[[:space:]]*"' "$CONFIG" | head -1 | sed -E 's/^model[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/')
+    current_provider=$(grep -E '^model_provider[[:space:]]*=[[:space:]]*"' "$CONFIG" | head -1 | sed -E 's/^model_provider[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/')
+    service_tier=$(grep -E '^service_tier[[:space:]]*=[[:space:]]*"' "$CONFIG" | head -1 | sed -E 's/^service_tier[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/')
+
+    echo "Active Codex model:     $current_model"
+    echo "Active provider:        $current_provider"
+    echo "Service tier:           $service_tier"
+    echo ""
+
+    # Desktop app status
+    if pgrep -f "Codex.app/Contents/MacOS/Codex" >/dev/null 2>&1; then
+        echo "Codex desktop:          RUNNING"
+    else
+        echo "Codex desktop:          not running"
+    fi
+
+    # Env key — checked in TWO places, because on macOS they're independent:
+    #   1. Current shell: useful for CLI use, sourced from ~/.zshenv on demand
+    #   2. launchd domain: what GUI-launched Codex.app actually sees
+    # The launchd value is what matters for the desktop app's API calls.
+    local shell_key=""
+    if [ -f "$HOME/.zshenv" ]; then
+        shell_key=$(grep -E '^export[[:space:]]+MINIMAX_API_KEY=' "$HOME/.zshenv" 2>/dev/null \
+            | head -1 | sed -E 's/^export[[:space:]]+MINIMAX_API_KEY="?([^"]*)"?$/\1/')
+    fi
+    if [ -n "$shell_key" ]; then
+        echo "MINIMAX_API_KEY (shell): set (length ${#shell_key})"
+    else
+        echo "MINIMAX_API_KEY (shell): not set in ~/.zshenv"
+    fi
+    local launchd_key
+    launchd_key=$(launchctl getenv MINIMAX_API_KEY 2>/dev/null || true)
+    if [ -n "$launchd_key" ]; then
+        echo "MINIMAX_API_KEY (GUI):   set in launchd (length ${#launchd_key}) — Codex desktop will see this"
+    else
+        echo "MINIMAX_API_KEY (GUI):   not set in launchd — Codex desktop will NOT see this"
+    fi
+}
+
+interactive_pick() {
+    echo "Pick a provider:"
+    echo "  1) gpt-5.5     (OpenAI, ChatGPT auth)"
+    echo "  2) minimax     (MiniMax-M3, needs MINIMAX_API_KEY)"
+    echo ""
+    read -p "Choice [1/2]: " choice
+    case "$choice" in
+        1|gpt*|openai*)  do_switch "gpt-5.5" ;;
+        2|minimax*|m3)   do_switch "minimax" ;;
+        *)               echo "Invalid choice" >&2; exit 1 ;;
+    esac
+}
+
+quit_codex() {
+    if pgrep -f "Codex.app/Contents/MacOS/Codex" >/dev/null 2>&1; then
+        echo "Quitting Codex desktop..."
+        osascript -e 'quit app "Codex"' 2>/dev/null || true
+        # Wait up to 5s for it to actually exit
+        for i in 1 2 3 4 5; do
+            sleep 1
+            if ! pgrep -f "Codex.app/Contents/MacOS/Codex" >/dev/null 2>&1; then
+                return 0
+            fi
+        done
+        # Force kill if it didn't quit cleanly
+        echo "  forcing kill..."
+        pkill -f "Codex.app/Contents/MacOS/Codex" 2>/dev/null || true
+        sleep 1
+    fi
+}
+
+launch_codex() {
+    echo "Relaunching Codex..."
+    open -a "$CODEX_APP"
+    sleep 2
+    if pgrep -f "Codex.app/Contents/MacOS/Codex" >/dev/null 2>&1; then
+        echo "  Codex is running."
+    else
+        echo "  WARNING: Codex did not appear within 2s. Check the app manually."
+    fi
+}
+
+# Push MINIMAX_API_KEY into the user launchd domain so newly-launched
+# GUI processes (i.e. Codex.app) inherit it. macOS GUI apps are spawned
+# by launchd, not by an interactive shell, so ~/.zshenv exports don't
+# reach them — launchctl setenv is the supported bridge.
+#
+# Returns 0 if env was set (or already set with the same value), 1 if
+# the key couldn't be read from ~/.zshenv. Never silently clears an
+# existing launchd value if our source is missing.
+sync_launchd_env() {
+    local key=""
+    if [ -f "$HOME/.zshenv" ]; then
+        key=$(grep -E '^export[[:space:]]+MINIMAX_API_KEY=' "$HOME/.zshenv" 2>/dev/null \
+            | head -1 | sed -E 's/^export[[:space:]]+MINIMAX_API_KEY="?([^"]*)"?$/\1/')
+    fi
+    if [ -z "$key" ]; then
+        echo "  WARNING: MINIMAX_API_KEY not found in ~/.zshenv — leaving launchd unchanged." >&2
+        return 1
+    fi
+    local current
+    current=$(launchctl getenv MINIMAX_API_KEY 2>/dev/null || true)
+    if [ "$current" = "$key" ]; then
+        echo "  MINIMAX_API_KEY already in launchd (length ${#key})."
+    else
+        if launchctl setenv MINIMAX_API_KEY "$key" 2>/dev/null; then
+            echo "  MINIMAX_API_KEY pushed to launchd (length ${#key})."
+        else
+            echo "  ERROR: launchctl setenv failed." >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+patch_config() {
+    # Rename params to avoid shadowing the keys we want to grep below.
+    local new_model="$1"
+    local new_provider="$2"
+
+    # Atomic edit: use python with properly-quoted string interpolation
+    # (NOT bash heredoc variable expansion inside an f-string — that was the
+    # source of the original bug). We pass values via sys.argv instead.
+    python3 - "$CONFIG" "$new_model" "$new_provider" <<'PY'
+import sys, re
+
+config_path, new_model, new_provider = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(config_path) as f:
+    txt = f.read()
+
+# Build the replacement lines. Always emit the standard quoting style.
+new_model_line = f'model = "{new_model}"'
+new_provider_line = f'model_provider = "{new_provider}"'
+
+def replace_top_level(key, new_line, txt):
+    # Match the key at the start of a line (no leading whitespace), with
+    # optional spaces around `=`, optional double-quoted value, optional
+    # trailing whitespace. Avoid matching `model_provider` when key is `model`
+    # by requiring a word boundary after `model`.
+    pattern = rf'^{re.escape(key)}(?![A-Za-z0-9_])\s*=\s*".*?"\s*$'
+    if re.search(pattern, txt, re.MULTILINE):
+        return re.sub(pattern, new_line, txt, count=1, flags=re.MULTILINE)
+    # Not found at top level — insert right after the `model =` line
+    return re.sub(
+        rf'^(model\s*=\s*".*?"\s*$)',
+        lambda m: m.group(1) + '\n' + new_line,
+        txt,
+        count=1,
+        flags=re.MULTILINE,
+    )
+
+txt = replace_top_level("model", new_model_line, txt)
+txt = replace_top_level("model_provider", new_provider_line, txt)
+
+with open(config_path, 'w') as f:
+    f.write(txt)
+
+print(f"Patched {config_path}")
+PY
+}
+
+do_switch() {
+    local arg="$1"
+    if [ -z "$arg" ]; then
+        interactive_pick
+        return $?
+    fi
+    if [ "$arg" = "status" ] || [ "$arg" = "st" ]; then
+        show_status
+        return 0
+    fi
+    local spec
+    if ! spec=$(resolve_profile "$arg"); then
+        echo "Unknown profile: $arg" >&2
+        echo "Available: gpt-5.5, openai, minimax, minimax-m3, m3" >&2
+        exit 1
+    fi
+    # Note: don't use `model` or `provider` as local names — they shadow
+    # nothing built-in but can be confused with config keys. Use m_, p_ prefixes.
+    local m_model="${spec%|*}"
+    local p_provider="${spec#*|}"
+
+    echo "==> Switching Codex to: $m_model (provider: $p_provider)"
+    quit_codex
+    patch_config "$m_model" "$p_provider"
+    # Always sync the launchd env before relaunch, regardless of provider.
+    # It's a no-op if the key matches what launchd already has, so the
+    # gpt-5.5 path costs nothing and the minimax path actually fixes the
+    # silent-auth-failure bug.
+    sync_launchd_env || true
+    launch_codex
+    echo ""
+    echo "==> Done. Active config:"
+    grep -E '^(model|model_provider|service_tier)[[:space:]]*=' "$CONFIG" | head -3 | sed 's/^/  /'
+}
+
+do_switch "${1:-}"
