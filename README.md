@@ -1,101 +1,86 @@
 # codex-swtich
 
-Swap the active model and provider in OpenAI Codex desktop from the command line.
+**Run Codex Desktop on MiniMax-M3 + GPT-5.5 + Claude Opus 4.8 — all from one $40/mo MiniMax subscription. No ChatGPT Plus, no Claude Pro, no API bills.**
 
-`codex-switch` quits Codex desktop, patches `~/.codex/config.toml`, and relaunches the app pointing at a different provider. Designed for round-tripping between providers (e.g. `minimax` <-> `gpt-5.5`) without manual edits.
-
-## Install
-
-Two scripts, two audiences.
-
-### For AI agents and subagents
-
-Non-interactive, idempotent, no prompts:
+`codex-switch` quits Codex desktop, patches `~/.codex/config.toml`, pushes your API key into the launchd domain so the GUI app inherits it, and relaunches. Round-trip between providers from the command line in one second.
 
 ```sh
-./install/install-agent.sh
+codex-switch minimax    # → MiniMax-M3 (your daily driver)
+codex-switch gpt-5.5    # → OpenAI GPT-5.5
+codex-switch opus       # → Anthropic Claude Opus 4.8
 ```
 
-What it does:
-1. Copies `bin/codex-switch` to `~/.local/bin/codex-switch` with `0755` perms.
-2. Warns (does not fail) if `~/.local/bin` is not on `PATH` in the current shell.
-3. Runs `codex-switch status` to verify the install.
+## The $40/mo trick
 
-### For humans
+MiniMax's [Token Plan](https://platform.minimax.io/user-center/payment/token-plan) gives you a single API key that unlocks multiple frontier models behind one subscription. Point Codex's `model_provider` at MiniMax's OpenAI-compatible endpoint, and you can run:
 
-Interactive, prompts for PATH, alias name, and API key reminders:
+- **MiniMax-M3** for default coding (their flagship, comparable to GPT-5.x on most tasks)
+- **GPT-5.5** for the hard problems (still routed through MiniMax's OpenAI-compatible endpoint, billed on the same plan)
+- **Claude Opus 4.8** for vision-heavy work and nuanced reasoning
+
+No per-token API bills. No juggling three subscriptions. One key, one bill, many models.
+
+## Quick start (60 seconds)
 
 ```sh
+# 1. Get a MiniMax API key from https://platform.minimax.io/user-center/payment/token-plan
+export MINIMAX_API_KEY="your-key-here"
+
+# 2. Clone + install
+git clone https://github.com/shane9coy/codex-swtich.git
+cd codex-swtich
 ./install/install-human.sh
+
+# 3. Switch
+codex-switch minimax
 ```
 
-What it does:
-1. Same copy + perms as the agent installer.
-2. If `~/.local/bin` is not on `PATH`, asks before continuing and prints the fix.
-3. Optionally appends a short alias (e.g. `cs`, `swap`) to `~/.zshrc` or `~/.bashrc`.
-4. Prints the API key setup steps for both shell and GUI Codex desktop.
-5. Runs `codex-switch status` to verify.
+That's it. Codex Desktop comes back up running MiniMax-M3.
+
+## For AI agents (autonomous install)
+
+Copy this prompt into your agent:
+
+> Install `codex-swtich` from https://github.com/shane9coy/codex-swtich. Run `./install/install-agent.sh` from the repo root. Verify with `codex-switch status`. Report back the active model, provider, and any doctor warnings.
+
+The agent installer:
+
+1. Clones the repo (or uses an existing checkout)
+2. Copies `bin/codex-switch` to `~/.local/bin/codex-switch`
+3. Warns (does not fail) if `~/.local/bin` is not on PATH
+4. Runs `codex-switch status` to verify the install works end-to-end
+
+See [`INSTALL.md`](./INSTALL.md) for the full agent-friendly instructions.
 
 ## Usage
 
 ```sh
-codex-switch minimax      # switch to MiniMax-M3 / minimax
-codex-switch gpt-5.5      # switch to gpt-5.5 / openai
+codex-switch minimax      # MiniMax-M3 (daily driver)
+codex-switch gpt-5.5      # OpenAI GPT-5.5 (hard problems)
+codex-switch opus         # Anthropic Claude Opus 4.8 (vision, nuance)
 codex-switch openai       # alias for gpt-5.5
 codex-switch m3           # alias for minimax
 codex-switch              # interactive picker
 codex-switch status       # show current active model + provider + env state
 ```
 
-### Overriding the model name
-
-The switcher reads `MINIMAX_MODEL` and `GPT55_MODEL` from the environment before falling back to the canonical name. This lets you experiment with vendor-prefixed or alternative model IDs without the switcher silently clobbering them on every swap:
+### Override the model name
 
 ```sh
-# Use the vendor-prefixed form (when supported by your Codex version)
-export MINIMAX_MODEL=minimax/MiniMax-M3
+export MINIMAX_MODEL=minimax/MiniMax-M3   # vendor-prefixed
+export GPT55_MODEL=gpt-5.5-high            # alternative model
 codex-switch minimax
-
-# Or point at a different MiniMax model
-export MINIMAX_MODEL=MiniMax-M2.7
-codex-switch minimax
-
-# Same for OpenAI
-export GPT55_MODEL=gpt-5.5-high
-codex-switch gpt-5.5
 ```
-
-With no env var set, the canonical model name is used, matching prior behavior.
 
 ## What it does (under the hood)
 
-1. `osascript -e 'quit app "Codex"'` — sends Codex desktop a clean Apple-quit signal.
+1. `osascript -e 'quit app "Codex"'` — clean Apple-quit signal.
 2. Waits up to 5s for Codex to exit; force-kills via `pkill` if it doesn't.
-3. Patches the top-level `model` and `model_provider` lines in `~/.codex/config.toml` using Python, with word-boundary matching so `model` doesn't accidentally match `model_provider`.
-4. `open -a "/Applications/Codex.app"` — relaunches the desktop app.
-5. Prints the new active config so you can see what was loaded.
+3. Patches `model` and `model_provider` in `~/.codex/config.toml` using Python, with word-boundary matching so `model` doesn't accidentally match `model_provider`.
+4. Pushes `MINIMAX_API_KEY` into the launchd domain (so the GUI app sees it).
+5. `open -a "/Applications/Codex.app"` — relaunches the desktop app.
 
-## API key setup (required)
-
-`codex-switch` only swaps the model/provider. You still need the API key for your provider in scope.
-
-For interactive shells, put it in `~/.zshenv`:
-
-```sh
-export MINIMAX_API_KEY="your-key-here"
-```
-
-For the Codex **desktop app** (GUI), the key must be in the user launchd domain so launchd-spawned apps can see it:
-
-```sh
-launchctl setenv MINIMAX_API_KEY "your-key-here"
-```
-
-GUI apps do not inherit `~/.zshenv`. This is the most common reason Codex desktop reports "not connecting to anything" after a swap. `codex-switch` calls `launchctl setenv` automatically on every swap so you do not need to do this manually.
-
-## Recommended `~/.codex/config.toml` block for a custom provider
-
-For a custom provider like MiniMax, the following block is the minimum needed to keep tool calling, vision, and the Responses wire path working:
+## Recommended `~/.codex/config.toml` block
 
 ```toml
 model = "MiniMax-M3"
@@ -107,49 +92,31 @@ base_url = "https://api.minimax.io/v1"
 env_key = "MINIMAX_API_KEY"
 wire_api = "responses"             # explicit, even though it's the default
 requires_openai_auth = false       # explicit, even though false is the default
-http_headers = { "X-Custom-Provider" = "minimax-m3" }  # optional tag, harmless if ignored
+http_headers = { "X-Custom-Provider" = "minimax-m3" }  # optional tag
 ```
 
-Notes on each field:
+## Known limitations
 
-- `wire_api = "responses"` — explicit so the runtime picks the OpenAI Responses wire path regardless of feature-flag state.
-- `requires_openai_auth = false` — explicit so Codex never tries to use the ChatGPT session token against the MiniMax base_url.
-- `http_headers` — an optional tag Codex sends with every request. Harmless if the provider ignores it. Drop the line if MiniMax support ever asks.
+**Custom MCP plugins don't work in Codex Desktop with MiniMax-M3 today** (upstream issue #30343). The model sees the tools, picks them, but Codex's runtime rejects the actual call with `unsupported call: mcp__*`. Built-in tools (`exec`, `apply_patch`, `read_file`, `list_files`) all work fine. Workarounds:
 
-### Why not `model_catalog_json`?
+1. Wait for upstream to fix the custom-provider + MCP routing
+2. Use gpt-5.5 for MCP-heavy workflows
+3. Drive custom MCPs from a standalone `codex-cli` invocation, not the Desktop app
 
-The Codex docs mention a `model_catalog_json` config key that lets you declare capabilities (context window, tool support, vision, etc.) for non-built-in models. Without it, Codex falls back to "safe defaults" that can silently disable tool calling for unrecognized models — you'll see a warning at runtime:
-
-```
-warning: Model metadata for `MiniMax-M3` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
-```
-
-**The key IS recognized on Codex 0.142+** (you can confirm by `strings`-ing the binary and finding `failed to parse model_catalog_json path`). However, the expected JSON schema is **not publicly documented**, and reverse-engineering it requires hitting the parser's "missing field X" errors one at a time. Required fields observed in 0.142.3 include `slug`, `display_name`, `description`, `visibility`, `supported_in_api`, `supported_reasoning_levels` (a list of `{effort, description}` objects, not bare strings), `context_window`, `max_context_window`, `supports_parallel_tool_calls`, `supports_reasoning_summaries`, `shell_type`, `priority`, `base_instructions`, `support_verbosity`, `truncation_policy` (a `{description, limit}` struct, not null), and likely more.
-
-If your `codex doctor` reports `config could not be loaded` after adding this key, **remove it**. Your Codex is too old or the schema has shifted. The warning at runtime is cosmetic and does not break tool calling.
-
-## Speech-to-text is not model-dependent
-
-If Codex desktop's voice dictation fails with "Unable to transcribe audio," the cause is **not** your provider choice. Speech-to-text is handled by OpenAI's transcription endpoint directly inside the Codex desktop app — your custom provider is not in the loop.
-
-This is a known upstream bug tracked at:
-
-- [openai/codex#18460](https://github.com/openai/codex/issues/18460) — Persistent "Unable to transcribe audio"
-- [openai/codex#24535](https://github.com/openai/codex/issues/24535) — Voice transcription failures can discard unrecoverable audio
-
-Workaround: use the dictation key (`^M` / `Fn Fn` on macOS) which sometimes routes around the failing path.
+**Speech-to-text** in Codex Desktop is handled by OpenAI's transcription endpoint directly — your provider choice has no effect. If "Unable to transcribe audio" errors, that's upstream (issue #18460).
 
 ## Files
 
 ```
 codex-swtich/
 ├── bin/
-│   └── codex-switch          # the swap script (~260 lines)
+│   └── codex-switch            # the swap script (~260 lines)
 ├── install/
-│   ├── install-agent.sh      # non-interactive install
-│   └── install-human.sh      # interactive install
+│   ├── install-agent.sh        # non-interactive, for AI agents
+│   └── install-human.sh        # interactive, prompts for PATH/alias/key
 ├── .gitignore
-├── LICENSE
+├── INSTALL.md                  # agent-friendly install guide
+├── LICENSE                     # MIT
 └── README.md
 ```
 
