@@ -118,15 +118,15 @@ Notes on each field:
 
 ### Why not `model_catalog_json`?
 
-The Codex docs mention a `model_catalog_json` config key that lets you declare capabilities (context window, tool support, vision, etc.) for non-built-in models. Without it, Codex falls back to "safe defaults" that can silently disable tool calling for unrecognized models.
+The Codex docs mention a `model_catalog_json` config key that lets you declare capabilities (context window, tool support, vision, etc.) for non-built-in models. Without it, Codex falls back to "safe defaults" that can silently disable tool calling for unrecognized models — you'll see a warning at runtime:
 
-**This key was added in a recent Codex version (post-0.140).** On older versions (verified on 0.137.0) it causes the entire config to fail to load. If you are on a version that supports it, the format is:
-
-```toml
-model_catalog_json = "~/.codex/model_catalog.json"
+```
+warning: Model metadata for `MiniMax-M3` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.
 ```
 
-with a JSON sidecar at that path declaring each model's capabilities. If `codex doctor` reports `config could not be loaded` after you add this key, remove it — your Codex is too old.
+**The key IS recognized on Codex 0.142+** (you can confirm by `strings`-ing the binary and finding `failed to parse model_catalog_json path`). However, the expected JSON schema is **not publicly documented**, and reverse-engineering it requires hitting the parser's "missing field X" errors one at a time. Required fields observed in 0.142.3 include `slug`, `display_name`, `description`, `visibility`, `supported_in_api`, `supported_reasoning_levels` (a list of `{effort, description}` objects, not bare strings), `context_window`, `max_context_window`, `supports_parallel_tool_calls`, `supports_reasoning_summaries`, `shell_type`, `priority`, `base_instructions`, `support_verbosity`, `truncation_policy` (a `{description, limit}` struct, not null), and likely more.
+
+If your `codex doctor` reports `config could not be loaded` after adding this key, **remove it**. Your Codex is too old or the schema has shifted. The warning at runtime is cosmetic and does not break tool calling.
 
 ## Speech-to-text is not model-dependent
 
