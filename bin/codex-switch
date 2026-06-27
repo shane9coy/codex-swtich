@@ -35,10 +35,15 @@ CODEX_APP="/Applications/Codex.app"
 # We use a case statement instead of bash 3.2 associative arrays because
 # Apple's bundled bash 3.2.57 has buggy -A support and chokes on keys
 # containing dots (e.g. "gpt-5.5").
+#
+# Model names can be overridden via env var: MINIMAX_MODEL, GPT55_MODEL, etc.
+# If unset, we fall back to the canonical name. This lets users experiment
+# with vendor-prefixed model IDs (e.g. "minimax/MiniMax-M3") without
+# codex-switch silently clobbering them on every swap.
 resolve_profile() {
     case "$1" in
-        gpt-5.5|openai)        echo "gpt-5.5|openai" ;;
-        minimax|minimax-m3|m3) echo "MiniMax-M3|minimax" ;;
+        gpt-5.5|openai)        echo "${GPT55_MODEL:-gpt-5.5}|openai" ;;
+        minimax|minimax-m3|m3) echo "${MINIMAX_MODEL:-MiniMax-M3}|minimax" ;;
         *)                    return 1 ;;
     esac
 }
