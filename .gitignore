@@ -16,3 +16,5 @@ install/.installed
 .env.*.local
 *.pem
 *.key
+# social media drafts (private)
+SOCIAL_POSTS.md
