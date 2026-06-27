@@ -1,24 +1,25 @@
 # codex-swtich
 
-**Run Codex Desktop on MiniMax-M3 + GPT-5.5 + Claude Opus 4.8 — all from one $40/mo MiniMax subscription. No ChatGPT Plus, no Claude Pro, no API bills.**
+**Run Codex Desktop on MiniMax-M3 for $40/mo — roughly the equivalent of $800–$1,000/mo of GPT-5.5 API spend.**
 
 `codex-switch` quits Codex desktop, patches `~/.codex/config.toml`, pushes your API key into the launchd domain so the GUI app inherits it, and relaunches. Round-trip between providers from the command line in one second.
 
 ```sh
 codex-switch minimax    # → MiniMax-M3 (your daily driver)
-codex-switch gpt-5.5    # → OpenAI GPT-5.5
-codex-switch opus       # → Anthropic Claude Opus 4.8
+codex-switch gpt-5.5    # → OpenAI GPT-5.5 (if you want to compare or use a specific tool only GPT supports)
 ```
 
 ## The $40/mo trick
 
-MiniMax's [Token Plan](https://platform.minimax.io/user-center/payment/token-plan) gives you a single API key that unlocks multiple frontier models behind one subscription. Point Codex's `model_provider` at MiniMax's OpenAI-compatible endpoint, and you can run:
+MiniMax-M3 is priced at **$0.30/M input, $1.20/M output**. GPT-5.5 is **$5.00/M input, $30.00/M output**. That's roughly 17× cheaper on input and 25× cheaper on output.
 
-- **MiniMax-M3** for default coding (their flagship, comparable to GPT-5.x on most tasks)
-- **GPT-5.5** for the hard problems (still routed through MiniMax's OpenAI-compatible endpoint, billed on the same plan)
-- **Claude Opus 4.8** for vision-heavy work and nuanced reasoning
+What that means in practice:
 
-No per-token API bills. No juggling three subscriptions. One key, one bill, many models.
+- $40 of MiniMax-M3 buys you ~133M input tokens + ~33M output tokens
+- The same volume of GPT-5.5 would cost **$667 in input + $1,000 in output = ~$1,000–$1,500/mo**
+- The same volume of Claude Opus 4.5 would cost **$667 in input + $833 in output = ~$1,000–$1,500/mo**
+
+So a $40/mo MiniMax Token Plan is roughly the equivalent of **$800–$1,500/mo of frontier-API spend**, routed through the Codex Desktop app you already use.
 
 ## Quick start (60 seconds)
 
@@ -55,9 +56,8 @@ See [`INSTALL.md`](./INSTALL.md) for the full agent-friendly instructions.
 ## Usage
 
 ```sh
-codex-switch minimax      # MiniMax-M3 (daily driver)
-codex-switch gpt-5.5      # OpenAI GPT-5.5 (hard problems)
-codex-switch opus         # Anthropic Claude Opus 4.8 (vision, nuance)
+codex-switch minimax      # MiniMax-M3 (daily driver, ~17× cheaper than GPT-5.5)
+codex-switch gpt-5.5      # OpenAI GPT-5.5 (when you need a model only OpenAI has, or to A/B compare)
 codex-switch openai       # alias for gpt-5.5
 codex-switch m3           # alias for minimax
 codex-switch              # interactive picker

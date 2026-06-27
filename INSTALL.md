@@ -136,37 +136,20 @@ It does NOT:
 - Push API keys into launchd on its own (the script does that on every `codex-switch` invocation).
 - Install Codex Desktop itself.
 
-## Adding the GPT-5.5 and Claude Opus 4.8 providers
+## Adding the OpenAI provider block
 
-If you want to round-trip between models on the same MiniMax subscription, add these blocks to `~/.codex/config.toml`:
+The shipped `codex-switch` only knows two profiles: `minimax` and `gpt-5.5`. To use `codex-switch gpt-5.5`, you need an OpenAI `[model_providers.openai]` block in your config. Codex ships with a built-in `openai` provider, so in most cases you don't need to add anything. If you want to use your own OpenAI API key (not ChatGPT session), add:
 
 ```toml
-[model_providers.minimax-gpt55]
-name = "MiniMax · GPT-5.5"
-base_url = "https://api.minimax.io/v1"
-env_key = "MINIMAX_API_KEY"
-wire_api = "responses"
-requires_openai_auth = false
-
-[model_providers.minimax-opus]
-name = "MiniMax · Claude Opus 4.8"
-base_url = "https://api.minimax.io/v1"
-env_key = "MINIMAX_API_KEY"
+[model_providers.openai]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+env_key = "OPENAI_API_KEY"
 wire_api = "responses"
 requires_openai_auth = false
 ```
 
-Then set the active model:
-
-```sh
-codex-switch minimax       # MiniMax-M3 (default)
-# To switch to GPT-5.5 or Opus 4.8, edit the top-level model = "..." line
-# in ~/.codex/config.toml. codex-switch currently handles MiniMax ↔ OpenAI
-# round-trips; for the MiniMax-routed GPT/Opus variants, edit config.toml
-# directly or extend resolve_profile() in bin/codex-switch.
-```
-
-(The shipped `codex-switch` only knows two profiles: `minimax` and `gpt-5.5`. Adding the MiniMax-routed GPT and Opus profiles is a one-line edit to `resolve_profile()` in `bin/codex-switch` — see the comment block in that function.)
+Then set `OPENAI_API_KEY` in your shell env or launchd domain. `codex-switch` does not currently push `OPENAI_API_KEY` into launchd — only `MINIMAX_API_KEY`. Add that capability to the script if you need it (the relevant function is `push_minimax_env`).
 
 ## Troubleshooting
 
